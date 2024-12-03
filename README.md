@@ -1,6 +1,6 @@
 # Python env
 ## Mac （conda）
-`conda create --name my_global_env python=3.11`
+`conda create --name ForeSee python=3.11`
 
 `conda activate ForeSee`
 
