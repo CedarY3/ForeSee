@@ -1,6 +1,6 @@
 .idea
 *.log
-test.py
+src/test.py
 my_data/
 __pycache__/
 *.pyc
