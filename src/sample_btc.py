@@ -70,5 +70,5 @@ def run_backtest(datafile):
 
 
 # 执行回测
-datafile = r'./btc_data_with_datetime.csv'  # 替换为你的数据文件路径
+datafile = r'../data/btc_data_with_datetime.csv'  # 替换为你的数据文件路径
 run_backtest(datafile)
