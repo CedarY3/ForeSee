@@ -1,14 +1,30 @@
 import datetime
 import backtrader as bt
+import numpy as np
 
 
 # 创建策略继承bt.Strategy
 class TestStrategy(bt.Strategy):
+    params = (
+        ('p1', 1),
+        ('p2', 2),
+        ('p3', 3),
+        ('p4', 4),
+        ('p5', 5),
+        ('min_hdp', 2),
+        ('max_hdp', 10),
+        ('win', 0.003),
+        ('fail', 0.005),
+    )
+
     def __init__(self):
         self.summary = {
             'total_trades': 0,
             'total_commission': 0,
         }
+        # holding period 持有周期
+        self.hdp = 0
+
         # 保存收盘价的引用
         self.dataclose = self.datas[0].close
         # 跟踪挂单
@@ -28,21 +44,28 @@ class TestStrategy(bt.Strategy):
         # 定义均线指标
         self.ma_x = bt.indicators.SimpleMovingAverage(
             self.data.close,
-            period=5,
-            plotname="MA5"
+            period=self.params.p1,
+        )
+        self.ma_y = bt.indicators.SimpleMovingAverage(
+            self.data.close,
+            period=self.params.p3,
+        )
+        self.ma_z = bt.indicators.SimpleMovingAverage(
+            self.data.close,
+            period=self.params.p2,
         )
 
     def buy_sig(self):  # 买入信号定义函数
-        return (self.ma_x[-1] < self.datas[0].close[-1]) and (self.datas[0].close[0] <= self.ma_x[0])
+        return (self.ma_x[-1] < self.ma_y[-1]) and (self.ma_y[0] <= self.ma_x[0])
 
     def sell_sig(self):  # 卖出信号定义函数
-        return (self.ma_x[-1] >= self.datas[0].close[-1]) and (self.datas[0].close[0] > self.ma_x[0])
+        return (self.ma_x[-1] >= self.ma_z[-1]) and (self.ma_z[0] > self.ma_x[0])
 
 
     def log(self, txt, dt=None):
         # 记录策略的执行日志
         dt = dt or self.datas[0].datetime.datetime(0)
-        print('%s, %s' % (dt.isoformat(), txt))
+        # print('%s, %s' % (dt.isoformat(), txt))
 
     # 订单状态通知，买入卖出都是下单
     def notify_order(self, order):
@@ -100,51 +123,74 @@ class TestStrategy(bt.Strategy):
                 # 跟踪订单避免重复
                 self.order = self.buy()
         else:
+            self.hdp = len(self) - self.bar_executed
+            current_price = self.dataclose[0]
+            profit = (current_price - self.buyprice) / self.buyprice  # 计算当前盈利比例
+
             # 卖出信号
-            if self.sell_sig():
+            if (self.hdp > self.params.max_hdp or
+                (self.hdp > self.params.min_hdp and (profit >= self.params.win or self.sell_sig())) or
+                abs(profit) <= self.params.fail
+            ):
                 # 全部卖出
                 self.log('卖出单, %.6f' % self.dataclose[0])
                 # 跟踪订单避免重复
                 self.order = self.sell()
 
 
-datafile = r'../data/btc_data_2023.csv'  # 替换为你的数据文件路径
-data = bt.feeds.GenericCSVData(
-    dataname=datafile,
-    dtformat="%Y-%m-%d %H:%M:%S",  # 日期时间格式，精确到分钟
-    timeframe=bt.TimeFrame.Minutes,  # 时间间隔为分钟
-    compression=1,  # 每分钟一条数据
-    openinterest=-1,  # 无持仓信息
-    headers=True,  # 数据包含列名
-    separator=",",  # 使用逗号分隔
-    open=1,  # 数据第 2 列是 open
-    high=3,  # 数据第 4 列是 high
-    low=4,  # 数据第 5 列是 low
-    close=2,  # 数据第 3 列是 close
-    volume=5,  # 数据第 6 列是 volume
-    # fromdate=datetime.datetime(2024, 11, 18),
-    # todate=datetime.datetime(2024, 11, 20),
-)
+if __name__ == "__main__":
+    datafile = r'../data/btc_data_2023.csv'  # 替换为你的数据文件路径
+    data = bt.feeds.GenericCSVData(
+        dataname=datafile,
+        dtformat="%Y-%m-%d %H:%M:%S",  # 日期时间格式，精确到分钟
+        timeframe=bt.TimeFrame.Minutes,  # 时间间隔为分钟
+        compression=1,  # 每分钟一条数据
+        openinterest=-1,  # 无持仓信息
+        headers=True,  # 数据包含列名
+        separator=",",  # 使用逗号分隔
+        open=1,  # 数据第 2 列是 open
+        high=3,  # 数据第 4 列是 high
+        low=4,  # 数据第 5 列是 low
+        close=2,  # 数据第 3 列是 close
+        volume=5,  # 数据第 6 列是 volume
+        # fromdate=datetime.datetime(2024, 11, 18),
+        # todate=datetime.datetime(2024, 11, 20),
+    )
 
-# 创建Cerebra引擎
-cerebra = bt.Cerebro()
-# 为Cerebra引擎添加策略
-cerebra.addstrategy(TestStrategy)
+    # 创建Cerebra引擎
+    cerebra = bt.Cerebro(optreturn=False)
+    # 为Cerebra引擎添加策略
+    cerebra.optstrategy(
+        TestStrategy,
+        p1=range(5, 21, 5),  # 遍历 ma_period 从 5 到 20
+        p2=range(10, 51, 10),
+        p3=range(20, 101, 20),
+        min_hdp=range(3, 10, 2),
+        max_hdp=range(5, 60, 10),
+        win=np.arange(0.001, 0.01, 0.001),
+        fail=np.arange(0.002, 0.02, 0.002),
+    )
 
-# 加载交易数据
-cerebra.adddata(data)
-# 设置投资金额1000.0
-cerebra.broker.setcash(10000.0)
-# 每笔交易使用固定交易量
-cerebra.addsizer(bt.sizers.FixedSize, stake=0.001)
-# 设置佣金为0.0
-cerebra.broker.setcommission(commission=0.0005)
-# 引擎运行前打印期出资金
-print('组合期初资金: %.6f' % cerebra.broker.getvalue())
-results = cerebra.run()
-# 引擎运行后打期末资金
-print('组合期末资金: %.6f' % cerebra.broker.getvalue())
-# 绘制图像
-print(results[0].summary['total_commission'])
-print(results[0].summary['total_trades'])
-cerebra.plot()
+    # 加载交易数据
+    cerebra.adddata(data)
+    # 设置投资金额1000.0
+    cerebra.broker.setcash(10000.0)
+    # 每笔交易使用固定交易量
+    cerebra.addsizer(bt.sizers.FixedSize, stake=0.001)
+    # 设置佣金为0.0
+    cerebra.broker.setcommission(commission=0.0005)
+
+
+    # 执行优化
+    results = cerebra.run()
+
+    # 打印结果
+    for res in results:
+        strategy = res[0]
+        print(
+            f"Params: p1:{strategy.params.p1}, p2:{strategy.params.p2}, p3:{strategy.params.p3}, "
+            f"p4:{strategy.params.p4}, p5:{strategy.params.p5}, "
+            f"Total Trades: {strategy.summary['total_trades']}, "
+            f"Total Commission: {strategy.summary['total_commission']}, "
+            f"Final Value: {strategy.broker.getvalue()}"
+        )
